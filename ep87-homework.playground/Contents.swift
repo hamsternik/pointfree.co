@@ -123,7 +123,7 @@ extension _WritableKeyPath {
     }
 }
 
-/// How to use such `appending(path:)` function.
+/// How to use `appending(path:)` function for the `_WritableKeyPath`.
 
 let _userLocationPartialKeyPath = _WritableKeyPath<User, Location>(
     get: { $0.location },
@@ -133,4 +133,86 @@ let _locationNamePartialKeyPath = _WritableKeyPath<Location, String>(
     get: { $0.name },
     set: { $0.name = $1 }
 )
+/// result type is `_WritableKeyPath<User, String>`
 let _userLocationNamePartialKeyPath = _userLocationPartialKeyPath.appending(path: _locationNamePartialKeyPath)
+
+/// using Swift embedded `keyPath`
+
+/// result type is `WritableKeyPath<User, String>`
+let userLocationNamePartialKeyPath = (\User.location).appending(path: \Location.name)
+
+/// ## EXERCISE #4
+
+/// 4. Define an `appending(path:)` method on `CasePath`, which allows you to combine a `CasePath<A, B>` and a `CasePath<B, C>`, into a `CasePath<A, C>`
+
+extension CasePath {
+    func appending<PartialValue>(path: CasePath<Value, PartialValue>) -> CasePath<Root, PartialValue> {
+        CasePath<Root, PartialValue>(
+            extract: { root -> PartialValue? in
+//                guard let value = extract(root), let partial = path.extract(value) else { return nil }
+//                return partial
+
+                /// could be written in more elegant way
+                self.extract(root).flatMap(path.extract)
+            },
+            embed: { partial -> Root in
+                embed(path.embed(partial))
+            }
+        )
+    }
+}
+
+/// How to use `appending(path:)` function for the `CasePath`.
+
+// sourcery: casePath
+enum GeneralError: Error {
+    // sourcery: casePath
+    enum NetworkError: Error {
+        // sourcery: casePath
+        enum ServerError: Error {
+            case invalidData
+            case incorrectFormat
+            case failedRequest
+        }
+
+        case serverError(ServerError)
+        case clientError
+        case undefined
+    }
+
+    case localError
+    case networkError(NetworkError)
+    case unknown
+}
+
+let networkErrorCasePath = CasePath<GeneralError, GeneralError.NetworkError>(
+    extract: { (error: GeneralError) -> GeneralError.NetworkError? in
+        guard case .networkError(let networkError) = error else { return nil }
+        return networkError
+    },
+    embed: { (networkError: GeneralError.NetworkError) -> GeneralError in
+        GeneralError.networkError(networkError)
+    }
+)
+let serverErrorCasePath = CasePath<GeneralError.NetworkError, GeneralError.NetworkError.ServerError>(
+    extract: { (networkError: GeneralError.NetworkError) -> GeneralError.NetworkError.ServerError? in
+        guard case .serverError(let serverError) = networkError else { return nil }
+        return serverError
+    },
+    embed: { (serverError: GeneralError.NetworkError.ServerError) -> GeneralError.NetworkError in
+        GeneralError.NetworkError.serverError(serverError)
+    }
+)
+let serverErrorFromGeneralCasePath: CasePath<GeneralError, GeneralError.NetworkError.ServerError> = networkErrorCasePath.appending(path: serverErrorCasePath)
+
+/// ## EXERCISE #5
+
+/// 5. Every type in Swift automatically comes with a special key path known as the "identity" key path. One gets access to it with the following syntax.
+
+let userIdentityKeyPath = \User.self /// return type is `WritableKeyPath<User, User>`
+let intIdentityKeyPath = \Int.self /// return type is `WritableKeyPath<Int, Int>`
+
+/// Define this operator for `_WritableKeyPath`
+
+extension _WritableKeyPath {
+}
