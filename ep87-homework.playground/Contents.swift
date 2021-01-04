@@ -91,19 +91,27 @@ extension _WritableKeyPath where Value == Void {
 
 /// 3. Key paths are equipped with an operation that allows you to append them. For example:
 
-struct Location {
-    var name: String
-}
-
 struct User {
+    struct Location: ExpressibleByStringLiteral {
+        struct Name {
+            var value: String
+        }
+
+        var name: Name
+        init(stringLiteral value: String) {
+            self.name = Name(value: value)
+        }
+    }
+
     var location: Location
 }
 
 /// The type's generic looks like `<User, String>` so the `Root` takes a `User` instance and returns it's location `name`.
 
-let locationNamePartialKeyPath = (\User.location).appending(path: \Location.name)
+//let locationNamePartialKeyPath = (\User.location).appending(path: \Location.name)
+let locationNamePartialKeyPath = (\User.location).appending(path: \User.Location.name)
 
-let location = Location(name: "Ukraine")
+let location: User.Location = "Ukraine"
 let user = User(location: location)
 
 locationNamePartialKeyPath
@@ -125,13 +133,13 @@ extension _WritableKeyPath {
 
 /// How to use `appending(path:)` function for the `_WritableKeyPath`.
 
-let _userLocationPartialKeyPath = _WritableKeyPath<User, Location>(
+let _userLocationPartialKeyPath = _WritableKeyPath<User, User.Location>(
     get: { $0.location },
     set: { $0.location = $1 }
 )
-let _locationNamePartialKeyPath = _WritableKeyPath<Location, String>(
-    get: { $0.name },
-    set: { $0.name = $1 }
+let _locationNamePartialKeyPath = _WritableKeyPath<User.Location, String>(
+    get: { $0.name.value },
+    set: { $0.name.value = $1 }
 )
 /// result type is `_WritableKeyPath<User, String>`
 let _userLocationNamePartialKeyPath = _userLocationPartialKeyPath.appending(path: _locationNamePartialKeyPath)
@@ -139,7 +147,12 @@ let _userLocationNamePartialKeyPath = _userLocationPartialKeyPath.appending(path
 /// using Swift embedded `keyPath`
 
 /// result type is `WritableKeyPath<User, String>`
-let userLocationNamePartialKeyPath = (\User.location).appending(path: \Location.name)
+//let userLocationNamePartialKeyPath = (\User.location).appending(path: \User.Location.name.value)
+
+/// the same as in previous definition at 2 lines above
+let userLocationNamePartialKeyPath = (\User.location)
+    .appending(path: \User.Location.name)
+    .appending(path: \User.Location.Name.value)
 
 /// ## EXERCISE #4
 
@@ -214,5 +227,48 @@ let intIdentityKeyPath = \Int.self /// return type is `WritableKeyPath<Int, Int>
 
 /// Define this operator for `_WritableKeyPath`
 
-extension _WritableKeyPath {
+extension _WritableKeyPath where Root == Value {
+    /// My implementation: using `static func` in case I can not define
+    /// any generic types like `<Root, Root>` for the static variables.
+//    static func identity() -> _WritableKeyPath<Root, Root> {
+//        _WritableKeyPath<Root, Root>(
+//            get: { $0 },
+//            set: { $0 = $1 }
+//        )
+//    }
+
+    /// pointfree implementation: w/o any generics using `identity` static variable
+    /// instead of defining generic types explicitly at method/variable return type
+    /// I can just restrict the `Root` type be the same as `Value` to make identity of any type
+    static var `self`: _WritableKeyPath {
+        _WritableKeyPath(
+            get: { $0 },
+            set: { (root, value) in root = value }
+        )
+    }
 }
+
+/// # EXERCISE #6
+
+/// 6. Define the `self` case path: for any type `A` there is a case path `CasePath<A, A>`.
+extension CasePath where Root == Value {
+    /// I preferred to name this variable as `identity`
+    /// instead of `self` as pointfree folks suggested.
+    static var identity: CasePath {
+        CasePath(
+            extract: { Optional.some($0) },
+            embed: { $0 }
+        )
+    }
+}
+
+let getNetworkErrorFromGeneralErrorCasePath = CasePath<GeneralError, GeneralError.NetworkError>(
+    extract: { (general: GeneralError) -> GeneralError.NetworkError? in
+        guard case .networkError(let networkErrorData) = general else { return nil }
+        return networkErrorData
+    },
+    embed: { (networkErrorData: GeneralError.NetworkError) -> GeneralError in
+        return GeneralError.networkError(networkErrorData)
+    }
+)
+let generalNetworkIdentityCasePath = CasePath<GeneralError, GeneralError>.identity
