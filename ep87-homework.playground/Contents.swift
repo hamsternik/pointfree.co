@@ -142,7 +142,8 @@ let _locationNamePartialKeyPath = _WritableKeyPath<User.Location, String>(
     set: { $0.name.value = $1 }
 )
 /// result type is `_WritableKeyPath<User, String>`
-let _userLocationNamePartialKeyPath = _userLocationPartialKeyPath.appending(path: _locationNamePartialKeyPath)
+let _userLocationNamePartialKeyPath = _userLocationPartialKeyPath
+    .appending(path: _locationNamePartialKeyPath)
 
 /// using Swift embedded `keyPath`
 
@@ -272,3 +273,156 @@ let getNetworkErrorFromGeneralErrorCasePath = CasePath<GeneralError, GeneralErro
     }
 )
 let generalNetworkIdentityCasePath = CasePath<GeneralError, GeneralError>.identity
+
+/// # Exercise #7
+/// **Task**: implement the "pair" key path: for any types `A`, `B`, and `C` one can combine two key paths `_WritableKeyPath<A,B>` and `_WritableKeyPath<B,C>` into a third key path `_WritableKeyPath<A,(B, C)>`.
+/// This operator allows you to easily focus on two properties of a struct at once.
+/// Note that this is not possible to do with Swift's `WritableKeyPath` because they are not directly constrictible by us, only by the compiler.
+
+/// # Solution: my own implementation
+
+extension _WritableKeyPath {
+    func pair<LocalValue>(
+        with localValueKeyPath: _WritableKeyPath<Value, LocalValue>
+    ) -> _WritableKeyPath<Root, (Value, LocalValue)> {
+        _WritableKeyPath<Root, (Value, LocalValue)>(
+            get: { (root: Root) -> (Value, LocalValue) in
+                let value = get(root)
+                return (value, localValueKeyPath.get(value))
+            },
+            set: { (root: inout Root, combined: (Value, LocalValue)) in
+                var value = combined.0
+                localValueKeyPath.set(&value, combined.1)
+                set(&root, value)
+            }
+        )
+    }
+}
+
+/// Pre-define the data structures for tests:
+
+struct Person7 {
+    struct Address {
+        var title: String
+    }
+
+    var address: Address
+}
+
+var homeAddress = Person7.Address(title: "Demiivska, 18")
+var nikita = Person7(address: homeAddress)
+
+let personAddressKeyPath = _WritableKeyPath<Person7, Person7.Address>(
+    get: { $0.address },
+    set: { $0.address = $1 }
+)
+
+let addressTitleKeyPath = _WritableKeyPath<Person7.Address, String>(
+    get: { $0.title },
+    set: { $0.title = $1 }
+)
+
+/// Let's use the `pair` function in example:
+
+let personAddressWithTitleKeyPath: _WritableKeyPath<Person7, (Person7.Address, String)>
+    = personAddressKeyPath.pair(with: addressTitleKeyPath)
+
+let nikitaAddressWithTitle = personAddressWithTitleKeyPath.get(nikita)
+nikitaAddressWithTitle.0
+nikitaAddressWithTitle.1
+
+var workAddressTitle = "Sofiivska Ploscha, 13"
+var workAddress = Person7.Address(title: workAddressTitle)
+personAddressWithTitleKeyPath.set(&nikita,(workAddress, workAddressTitle))
+print(nikita)
+
+/// # Solution: pointfree.co implementation
+
+func pair<A,B,C>(
+    _ lhs: _WritableKeyPath<A,B>,
+    _ rhs: _WritableKeyPath<A,C>
+) -> _WritableKeyPath<A,(B,C)> {
+    _WritableKeyPath<A,(B,C)>(
+        get: { a in (lhs.get(a), rhs.get(a)) },
+        set: { a, bc in
+            lhs.set(&a, bc.0)
+            rhs.set(&a, bc.1)
+        }
+    )
+}
+
+/// Let's use the `pair` function in example (use the same `Person7` data structure):
+
+let personWithAddressAndTitle = pair(
+    personAddressKeyPath,
+    personAddressKeyPath.appending(path: addressTitleKeyPath)
+)
+
+personWithAddressAndTitle.get(nikita)
+
+var oldHomeAddressTitle = "Zhilanska, 55"
+var oldHomeAddress = Person7.Address(title: oldHomeAddressTitle)
+personWithAddressAndTitle.set(&nikita, (oldHomeAddress, oldHomeAddressTitle))
+print(nikita)
+
+
+/// # Exercise #8
+/// **Task**: implement the "either" case path: for any types `A`, `B` and `C` one can combine two case paths `CasePath<A,B>`, `CasePath<A,C>` into a third case path `CasePath<A,Either<B,C>>`, where:
+/// ```
+enum Either<A,B> {
+    case left(A)
+    case right(B)
+}
+/// ```
+/// This operation allows you to easily focus on two cases of an enum at once.
+
+/// # Solution -- my own implementation
+
+func either1<A,B,C>(
+    _ lhs: CasePath<A,B>,
+    _ rhs: CasePath<A,C>
+) -> CasePath<A, Either<B,C>> {
+    CasePath<A, Either<B,C>>(
+        extract: { (a: A) -> Either<B,C>? in
+            let _b = lhs.extract(a)
+            let _c = rhs.extract(a)
+            switch (_b, _c) {
+                case (.some(let b), _): return .left(b)
+                case (nil, .some(let c)): return .right(c)
+                case (nil, nil): return nil
+            }
+        },
+        embed: { (bc: Either<B,C>) -> A in
+            switch bc {
+            case .left(let b):
+                return lhs.embed(b)
+            case .right(let c):
+                return rhs.embed(c)
+            }
+        }
+    )
+}
+
+/// # Solution -- pointfree.co implementation
+
+func either2<A,B,C>(
+    _ lhs: CasePath<A,B>,
+    _ rhs: CasePath<A,C>
+) -> CasePath<A, Either<B,C>> {
+    CasePath<A, Either<B,C>>(
+        extract: { (a: A) -> Either<B,C>? in
+            /// The all difference between solution #1 and #2 relates to the `extract` closure implementaion
+            /// lectors provided a more elegant and more functional way of how to unwrap and extract the right value
+            lhs.extract(a).map(Either.left)
+                ?? rhs.extract(a).map(Either.right)
+        },
+        embed: { (bc: Either<B,C>) -> A in
+            switch bc {
+            case .left(let b):
+                return lhs.embed(b)
+            case .right(let c):
+                return rhs.embed(c)
+            }
+        }
+    )
+}
