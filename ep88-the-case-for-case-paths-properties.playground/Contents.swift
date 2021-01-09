@@ -54,7 +54,7 @@ extension CasePath {
 /// Let's show the example of how the case path's `append(path:)` could be used:
 
 enum Authentication {
-    case authentication(AccessToken)
+    case authenticated(AccessToken)
     case unauthenticated
 }
 struct AccessToken {
@@ -65,11 +65,11 @@ struct AccessToken {
 
 let authenticatedCasePath = CasePath<Authentication, AccessToken>(
     extract: { (auth: Authentication) -> AccessToken? in
-        guard case .authentication(let token) = auth else { return nil }
+        guard case .authenticated(let token) = auth else { return nil }
         return token
     },
     embed: { (token: AccessToken) -> Authentication in
-        Authentication.authentication(token)
+        Authentication.authenticated(token)
     }
 )
 
@@ -164,3 +164,31 @@ users.map(^\.name)
 /// Currently I'm using Swift 5.2 so the `Key Path Expressions as Functions` proposal is already approved, merged and I can use it new option:
 
 users.map(\.name)
+
+/// The same we can implemet for our `CasePath` data struct:
+
+prefix func ^ <Root, Value>(
+  path: CasePath<Root, Value>
+) -> (Root) -> Value? {
+  return path.extract
+}
+
+
+^authenticatedCasePath
+
+let authentications: [Authentication] = [
+    .authenticated(AccessToken(token: "deadbefd")),
+    .unauthenticated,
+    .authenticated(AccessToken(token: "caged00d"))
+]
+
+authentications.compactMap(^authenticatedCasePath)
+
+/// Without `^` operator we need to explicitly write down the implementation in the closure:
+
+authentications.compactMap { (auth: Authentication) -> AccessToken? in
+    guard case .authenticated(let token) = auth else {
+        return nil
+    }
+    return token
+}
